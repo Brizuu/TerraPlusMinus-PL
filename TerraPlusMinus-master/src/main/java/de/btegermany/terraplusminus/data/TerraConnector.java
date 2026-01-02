@@ -57,10 +57,22 @@ public class TerraConnector {
             double adjustedLat = adjustedProj[1];
             GeneratorDatasets datasets = new GeneratorDatasets(bteGeneratorSettings);
 
-
             altFuture = datasets.<IScalarDataset>getCustom(EarthGeneratorPipelines.KEY_DATASET_HEIGHTS)
                     .getAsync(adjustedLon, adjustedLat)
-                    .thenApply(a -> a + 1.0d);
+                    .thenApply(a -> a + 1.0d)
+                    // --- TUTAJ WYCISZAMY BŁĄD ---
+                    .exceptionally(ex -> {
+                        // Sprawdzamy czy to błąd sieciowy
+                        String msg = ex.getMessage();
+                        if (msg != null && (msg.contains("Connection reset") || msg.contains("timeout") || msg.contains("NativeIoException"))) {
+                            // Krótki komunikat zamiast ściany tekstu
+                            org.bukkit.Bukkit.getLogger().warning("[T+-] API lag at " + (int)x + ", " + (int)z + " - skipping elevation.");
+                        } else {
+                            // Jeśli to coś innego, wypisz nazwę błędu
+                            org.bukkit.Bukkit.getLogger().severe("[T+-] API Error: " + ex.getClass().getSimpleName());
+                        }
+                        return 0.0; // Zwracamy 0, żeby teleportacja/generator się nie zawiesiły
+                    });
         } catch (OutOfProjectionBoundsException e) {
             altFuture = CompletableFuture.completedFuture(0.0);
         }

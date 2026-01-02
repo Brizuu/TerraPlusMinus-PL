@@ -1,6 +1,6 @@
 ![](https://i.imgur.com/XKVkhH1.png)
 
-# TerraPlusMinus
+# TerraPlusMinus - PL
 [![Build Terra+-](https://github.com/Build-the-Earth-Germany/terraplusminus/actions/workflows/maven.yml/badge.svg)](https://github.com/Build-the-Earth-Germany/terraplusminus/actions/workflows/maven.yml)
 [![Quality Gate Status](https://sonarqube.app.k8s.bteger.dev/api/project_badges/measure?project=BTE-Germany_TerraPlusMinus_776220d7-94a3-47ab-a1af-0f299952ab48&metric=alert_status&token=sqb_697251798da319e35b695e4fd1da188ff4e3336b)](https://sonarqube.app.k8s.bteger.dev/dashboard?id=BTE-Germany_TerraPlusMinus_776220d7-94a3-47ab-a1af-0f299952ab48)
 [![GitHub license](https://badgen.net/github/license/Build-the-Earth-Germany/terraplusminus)](https://github.com/Build-the-Earth-Germany/terraplusminus/blob/master/LICENSE)
@@ -8,11 +8,9 @@
 [![Discord](https://img.shields.io/discord/692825222373703772.svg?label=&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2)](https://discord.gg/GkSxGTYaAJ)
 ![https://github.com/buildtheearth](https://go.buildtheearth.net/community-shield)
 
-* Supported Minecraft-Versions: **Paper 1.20.6 - 1.21**: [Download here](https://github.com/BTE-Germany/TerraPlusMinus/releases)
+* Tested Minecraft-Versions: **Paper 1.21.5**: [Download here](https://github.com/Brizuu/TerraPlusPlus-PL/releases)
 
-* *Legacy version (for older Minecraft-Versions Spigot 1.18 - 1.20.4): [Legacy-Version 1.3.3](https://github.com/BTE-Germany/TerraPlusMinus/releases/tag/v1.3.3)*
-
-
+*It's experimental version of TerraPlusMinus made by **BTE Poland***
 
 <!-- TABLE OF CONTENTS -->
 # Table of Contents

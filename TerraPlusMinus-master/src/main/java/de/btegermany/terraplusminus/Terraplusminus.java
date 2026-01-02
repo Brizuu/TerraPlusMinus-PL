@@ -47,9 +47,25 @@ import static net.daporkchop.lib.common.util.PValidation.checkState;
 public final class Terraplusminus extends JavaPlugin implements Listener {
     public static FileConfiguration config;
     public static Terraplusminus instance;
+    public static java.util.logging.Logger LOGGER;
 
     @Override
     public void onEnable() {
+        LOGGER = this.getLogger();
+        System.setProperty("http.maxConnections", "16");
+        System.setProperty("http.keepAlive", "true");
+
+        // 2. Wymuś na bibliotece użycie szybkiego cache
+        System.setProperty("sun.net.http.allowRestrictedHeaders", "true");
+
+        net.buildtheearth.terraminusminus.util.http.Http.configChanged();
+
+        // 1. Całkowite wyciszenie loggera biblioteki terraminusminus
+        java.util.logging.Logger terraLogger = java.util.logging.Logger.getLogger("terra--");
+        terraLogger.setLevel(java.util.logging.Level.OFF); // Wyłącza domyślne błędy biblioteki
+
+        // 2. Wyciszenie Netty (systemu sieciowego), który sypie stacktrace'ami
+        java.util.logging.Logger.getLogger("io.netty").setLevel(java.util.logging.Level.OFF);
         new Metrics(this, 28392); // https://bstats.org/plugin/bukkit/Terraplusminus/28392
         instance = this;
 

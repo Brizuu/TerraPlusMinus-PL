@@ -94,7 +94,7 @@ public class RealWorldGenerator extends ChunkGenerator {
 
         this.customBiomeProvider = new CustomBiomeProvider(projection);
         this.cache = CacheBuilder.newBuilder()
-                .expireAfterAccess(5L, TimeUnit.MINUTES)
+                .expireAfterAccess(10L, TimeUnit.MINUTES)
                 .softValues()
                 .build(new ChunkDataLoader(this.settings));
 
@@ -235,22 +235,20 @@ public class RealWorldGenerator extends ChunkGenerator {
 
     private CachedChunkData getTerraChunkData(int chunkX, int chunkZ) {
         try {
-            // Czekamy maksymalnie 1500ms na odpowiedź z API
-            return this.cache.getUnchecked(new ChunkPos(chunkX, chunkZ)).get(5000, TimeUnit.MILLISECONDS);
+            // Robimy tylko JEDNĄ solidną próbę.
+            // Skracamy czas oczekiwania do 4 sekund, żeby nie mrozić wątku zbyt długo.
+            return this.cache.getUnchecked(new ChunkPos(chunkX, chunkZ)).get(4, TimeUnit.SECONDS);
         } catch (Exception e) {
-            // Logujemy błąd w konsoli (raz, aby nie spamować)
-            // Rejestrujemy błąd w naszym cache, aby PlayerMoveListener wiedział, że ma tu nie wpuszczać gracza
+            // Jeśli nie wyjdzie, od razu czyścimy cache dla tego chunka
+            this.cache.invalidate(new ChunkPos(chunkX, chunkZ));
+
+            // Logujemy ostrzeżenie tylko raz
+            Terraplusminus.instance.getLogger().warning("API nie odpowiedziało dla chunka [" + chunkX + ", " + chunkZ + "]. Oznaczam jako błąd.");
+
+            // Oznaczamy w naszym cache błędów, żeby PlayerMoveListener wiedział, że ma zatrzymać gracza
             ChunkStatusCache.markAsFailed(chunkX, chunkZ);
 
-            // Zamiast rzucać RuntimeException, zwracamy pusty obiekt.
-            // Silnik Minecrafta "pomyśli", że wszystko jest ok, ale teren będzie pusty.
-            // Gracz i tak tam nie wejdzie, bo zablokuje go PlayerMoveListener.
-            try {
-                return this.cache.getUnchecked(new ChunkPos(chunkX, chunkZ)).getNow(null);
-            } catch (Exception fatal) {
-                // Jeśli absolutnie nie da się pobrać nawet starego cache, zwracamy cokolwiek, by nie scrashować wątku
-                return null;
-            }
+            return null;
         }
     }
 
