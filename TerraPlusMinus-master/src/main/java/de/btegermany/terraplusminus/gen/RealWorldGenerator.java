@@ -99,26 +99,54 @@ public class RealWorldGenerator extends ChunkGenerator {
         );
     }
 
+    private static long globalApiLockoutUntil = 0; // Globalna blokada przy błędach
+
     private CachedChunkData getTerraChunkData(int chunkX, int chunkZ) {
+        long currentTime = System.currentTimeMillis();
+
+        // 1. Sprawdzenie blokady globalnej
+        if (currentTime < globalApiLockoutUntil) {
+            return null;
+        }
+
         try {
-            // MECHANIZM ANTY-BAN (Pacing):
-            // Jeśli mamy więcej niż 4 aktywne zapytania (częste przy //regen),
-            // wstrzymujemy wątek na chwilę, by "rozrzedzić" ruch do API.
-            if (activeRequests.get() >= 4) {
-                Thread.sleep(100 + randomDelay.nextInt(150));
+            // 2. Throttling - nie pozwalamy na zbyt wiele równoległych zapytań
+            if (activeRequests.get() >= 1) {
+                Thread.sleep(100);
             }
 
             activeRequests.incrementAndGet();
 
-            // Próbujemy pobrać dane (zwiększony timeout do 6s dla stabilności przy obciążeniu)
-            return this.cache.getUnchecked(new ChunkPos(chunkX, chunkZ)).get(6, TimeUnit.SECONDS);
+            // 3. Pobieranie z krótkim timeoutem (1.5s)
+            CompletableFuture<CachedChunkData> future = this.cache.getUnchecked(new ChunkPos(chunkX, chunkZ));
+            return future.get(1500, TimeUnit.MILLISECONDS);
 
         } catch (Exception e) {
+            // 4. Pobieramy pełny opis błędu, zamieniamy na małe litery dla łatwiejszego porównania
+            String fullError = e.toString().toLowerCase();
+            if (e.getCause() != null) {
+                fullError += " " + e.getCause().toString().toLowerCase();
+            }
+
+            // 5. Rozszerzona lista fraz blokujących (dodano 'peer')
+            if (fullError.contains("reset") ||
+                    fullError.contains("peer") ||
+                    fullError.contains("429") ||
+                    fullError.contains("too many")) {
+
+                globalApiLockoutUntil = currentTime + 30000; // 30s twardej przerwy
+
+                Terraplusminus.instance.getLogger().severe("!!! API BLOCKADE: Connection reset by peer / Rate limit !!!");
+                Terraplusminus.instance.getLogger().severe("Wykryto odrzucenie połączenia przez API. Blokada zapytań na 30 sekund.");
+            }
+            else if (fullError.contains("timeout")) {
+                globalApiLockoutUntil = currentTime + 10000; // 10s przerwy przy zwykłym przekroczeniu czasu
+            }
+
             this.cache.invalidate(new ChunkPos(chunkX, chunkZ));
             ChunkStatusCache.markAsFailed(chunkX, chunkZ);
             return null;
         } finally {
-            // Zawsze zmniejszamy licznik, nawet jeśli wystąpił błąd
             activeRequests.decrementAndGet();
         }
     }
@@ -236,8 +264,9 @@ public class RealWorldGenerator extends ChunkGenerator {
     }
 
     @NotNull
+    @Override
     public List<BlockPopulator> getDefaultPopulators(@NotNull World world) {
-        return Collections.singletonList(new TreePopulator(customBiomeProvider, yOffset));
+        return Collections.emptyList();
     }
 
     @Nullable

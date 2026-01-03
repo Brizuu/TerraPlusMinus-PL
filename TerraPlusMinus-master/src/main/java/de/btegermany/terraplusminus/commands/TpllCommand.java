@@ -20,7 +20,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.generator.ChunkGenerator;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.concurrent.CompletableFuture;
+import java.util.List;
 
 import static org.bukkit.ChatColor.RED;
 
@@ -40,13 +40,13 @@ public class TpllCommand implements BasicCommand {
             return;
         }
 
-        // --- OBSŁUGA SELEKTORÓW (@a, @p, nazwy graczy) ---
+        // --- OBSŁUGA SELEKTORÓW ---
         if (args.length > 0 && (args[0].startsWith("@") || !isDouble(args[0].replace(",", "").replace("°", ""))) && player.hasPermission("t+-.forcetpll")) {
             handleEntitySelectors(player, args);
             return;
         }
 
-        // --- PASSTHROUGH DO INNYCH PLUGINÓW ---
+        // --- PASSTHROUGH ---
         String passthroughTpll = Terraplusminus.config.getString("passthrough_tpll");
         if (passthroughTpll != null && !passthroughTpll.isEmpty()) {
             if (args.length == 0) {
@@ -92,7 +92,7 @@ public class TpllCommand implements BasicCommand {
             return;
         }
 
-        // Sprawdzanie granic pracy dla ekip budowlanych
+        // Sprawdzanie uprawnień admina (granice pracy)
         if (!player.hasPermission("t+-.admin")) {
             double minLat = Terraplusminus.config.getDouble("min_latitude");
             double maxLat = Terraplusminus.config.getDouble("max_latitude");
@@ -106,50 +106,46 @@ public class TpllCommand implements BasicCommand {
             }
         }
 
-        TerraConnector terraConnector = new TerraConnector();
         int xOffset = Terraplusminus.config.getInt("terrain_offset.x");
         int zOffset = Terraplusminus.config.getInt("terrain_offset.z");
+        double targetX = mcCoordinates[0] + xOffset;
+        double targetZ = mcCoordinates[1] + zOffset;
 
-        // --- ASYNCHRONICZNE POBIERANIE WYSOKOŚCI (GŁÓWNA ZMIANA) ---
-        // --- ASYNCHRONICZNE POBIERANIE WYSOKOŚCI Z OPTYMALIZACJĄ ---
         if (args.length >= 3) {
-            // Jeśli wysokość podana w komendzie, teleportujemy od razu
+            // Podano wysokość ręcznie
             double height = Double.parseDouble(args[2]) + yOffset;
             finalizeTeleport(player, tpWorld, mcCoordinates, height, xOffset, zOffset, coordinates, true);
         } else {
-            // Sprawdzamy, czy chunk jest już wygenerowany w Minecrafcie
-            Location checkLoc = new Location(tpWorld, mcCoordinates[0] + xOffset, 0, mcCoordinates[1] + zOffset);
+            // Automatyczne wykrywanie wysokości - asynchronicznie
+            player.sendMessage(Terraplusminus.config.getString("prefix") + "§7Locating position...");
 
-            if (PaperLib.isChunkGenerated(checkLoc)) {
-                // CHUNK ISTNIEJE: Pobieramy wysokość z silnika gry (szybko!)
-                int internalHeight = tpWorld.getHighestBlockYAt((int) checkLoc.getX(), (int) checkLoc.getZ());
-                // Jeśli najwyższy blok to 0 lub poniżej, na wszelki wypadek zapytaj API (bezpiecznik dla pustych chunków)
+            tpWorld.getChunkAtAsync((int) targetX >> 4, (int) targetZ >> 4).thenAccept(chunk -> {
+                int internalHeight = tpWorld.getHighestBlockYAt((int) targetX, (int) targetZ);
+
                 if (internalHeight > tpWorld.getMinHeight() + 1) {
-                    player.sendMessage(Terraplusminus.config.getString("prefix") + "§7Teleporting to generated chunk");
+                    // Chunk już ma teren w grze
                     finalizeTeleport(player, tpWorld, mcCoordinates, internalHeight + 1.0, xOffset, zOffset, coordinates, true);
-                    return;
+                } else {
+                    // Pusty chunk - pytamy API
+                    player.sendMessage(Terraplusminus.config.getString("prefix") + "§7Fetching elevation from API...");
+                    TerraConnector terraConnector = new TerraConnector();
+                    terraConnector.getHeight((int) mcCoordinates[0], (int) mcCoordinates[1])
+                            .thenAcceptAsync(rawHeight -> {
+                                double finalHeight = rawHeight + yOffset;
+                                Bukkit.getScheduler().runTask(Terraplusminus.instance, () -> {
+                                    finalizeTeleport(player, tpWorld, mcCoordinates, finalHeight, xOffset, zOffset, coordinates, false);
+                                });
+                            }).exceptionally(ex -> {
+                                player.sendMessage(RED + "Error while fetching elevation from API!");
+                                return null;
+                            });
                 }
-            }
-
-            // CHUNK NIEISTNIEJE: Pobieramy z API asynchronicznie (wolniej)
-            player.sendMessage(Terraplusminus.config.getString("prefix") + "§7Fetching elevation data from API...");
-
-            terraConnector.getHeight((int) mcCoordinates[0], (int) mcCoordinates[1])
-                    .thenAcceptAsync(rawHeight -> {
-                        double finalHeight = rawHeight + yOffset;
-                        Bukkit.getScheduler().runTask(Terraplusminus.instance, () -> {
-                            finalizeTeleport(player, tpWorld, mcCoordinates, finalHeight, xOffset, zOffset, coordinates, false);
-                        });
-                    }).exceptionally(ex -> {
-                        player.sendMessage(RED + "Error while fetching elevation from API!");
-                        return null;
-                    });
+            });
         }
     }
 
     private void finalizeTeleport(Player player, World tpWorld, double[] mcCoordinates, double height, int xOffset, int zOffset, double[] geoCoordinates, boolean hasCustomHeight) {
 
-        // Sprawdzanie Linked Worlds (Multiverse / Bungee)
         if (height > tpWorld.getMaxHeight()) {
             handleLinkedWorlds(player, true, geoCoordinates, height, mcCoordinates, xOffset, zOffset);
             return;
@@ -160,16 +156,7 @@ public class TpllCommand implements BasicCommand {
 
         Location location = new Location(tpWorld, mcCoordinates[0] + xOffset, height, mcCoordinates[1] + zOffset, player.getLocation().getYaw(), player.getLocation().getPitch());
 
-        // Sprawdzenie czy chunk jest wygenerowany
-        if (PaperLib.isChunkGenerated(location)) {
-            if (!hasCustomHeight) {
-                location = new Location(tpWorld, mcCoordinates[0] + xOffset, tpWorld.getHighestBlockYAt((int) mcCoordinates[0] + xOffset, (int) mcCoordinates[1] + zOffset) + 1, mcCoordinates[1] + zOffset, player.getLocation().getYaw(), player.getLocation().getPitch());
-            }
-        } else {
-            player.sendMessage(Terraplusminus.config.getString("prefix") + "§7Location is generating. Please wait a moment...");
-        }
-
-        // Asynchroniczna teleportacja (PaperLib)
+        // Klucz: Używamy tylko asynchronicznej metody bez blokujących sprawdzeń
         PaperLib.teleportAsync(player, location).thenAccept(success -> {
             if (success) {
                 player.sendMessage(Terraplusminus.config.getString("prefix") + "§7Teleported to " + geoCoordinates[1] + ", " + geoCoordinates[0]);
@@ -200,9 +187,8 @@ public class TpllCommand implements BasicCommand {
     }
 
     private void handleEntitySelectors(Player player, String[] args) {
-        // Logika @a, @p przeniesiona z oryginalnego kodu
         if (args[0].equals("@a")) {
-            Terraplusminus.instance.getServer().getOnlinePlayers().forEach(p -> p.chat("/tpll " + String.join(" ", args).substring(2)));
+            Terraplusminus.instance.getServer().getOnlinePlayers().forEach(p -> p.chat("/tpll " + String.join(" ", args).substring(3)));
             player.sendMessage(Terraplusminus.config.getString("prefix") + "§7Teleporting all players...");
         } else if (args[0].equals("@p")) {
             Player nearest = null;
@@ -213,7 +199,7 @@ public class TpllCommand implements BasicCommand {
                     dist = p.getLocation().distanceSquared(player.getLocation());
                 }
             }
-            if (nearest != null) nearest.chat("/tpll " + String.join(" ", args).substring(2));
+            if (nearest != null) nearest.chat("/tpll " + String.join(" ", args).substring(3));
         } else {
             Player target = Bukkit.getPlayer(args[0]);
             if (target != null) {
